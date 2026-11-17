@@ -3,9 +3,40 @@ import pool from "../config/database.js";
 
 const router = express.Router();
 
+// GET /tickets - Retrieve all tickets with pagination
+
 router.get("/", async (req, res) => {
     try {
-        const result = await pool.query("SELECT * FROM tickets ORDER BY id ASC");
+        // Pagination parameters
+        const page = Number(req.query.page ?? 1);
+        const limit = Number(req.query.limit ?? 10);
+
+        // Validate page
+        if (!Number.isSafeInteger(page) || page <=0) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid page number. It must be a positive integer"
+            });
+        }
+
+        // Validate limit
+        if(!Number.isSafeInteger(limit) || limit <=0) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid limit. It must be a positive integer"
+            });
+        }
+        // Calculate the offset for pagination
+        const offset = (page - 1) * limit;
+        if (!Number.isSafeInteger(offset)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid offset calculated from page and limit"
+            });
+        }
+
+        // Query the database for tickets with pagination
+        const result = await pool.query("SELECT * FROM tickets ORDER BY id ASC LIMIT $1 OFFSET $2", [limit, offset]);
         res.status(200).json({
             success: true,
             message: "Tickets retrieved successfully",
@@ -19,6 +50,8 @@ router.get("/", async (req, res) => {
         });
     }
 });
+
+// GET /tickets/:id - Retrieve a specific ticket by ID
 
 router.get("/:id",  async (req, res) => {
     try {
@@ -50,6 +83,8 @@ router.get("/:id",  async (req, res) => {
         });
     }
 });
+
+// POST /tickets - Create a new ticket
 
 router.post("/", async (req, res) => {
     try {
@@ -105,6 +140,8 @@ router.post("/", async (req, res) => {
         });
     }
 });
+
+// PUT /tickets/:id - Update an existing ticket
 
 router.put("/:id", async (req, res) => {
     try {
@@ -171,6 +208,8 @@ router.put("/:id", async (req, res) => {
         });
     }
 });
+
+// DELETE /tickets/:id - Delete a ticket by ID
 
 router.delete("/:id", async (req, res) => {
     try {
