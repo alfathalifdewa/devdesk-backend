@@ -1,128 +1,218 @@
 import express from "express";
-import tickets from "../data/tickets.js";
+import pool from "../config/database.js";
 
 const router = express.Router();
 
-router.get("/", (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: "Tickets retrieved successfully",
-        data: tickets
-    });
-})
-
-router.get("/:id", (req, res) => {
-    const ticket = tickets.find(t => t.id === parseInt(req.params.id));
-    res.status(200).json({
-        success: true,
-        message: "Ticket retrieved successfully",
-        data: ticket
-    });
-})
-
-router.post("/", (req, res) => {
-    const {title, priority} = req.body;
-
-    // Validate title
-    if (!title || title.trim() === "") {
-        return res.status(400).json({
+router.get("/", async (req, res) => {
+    try {
+        const result = await pool.query("SELECT * FROM tickets ORDER BY id ASC");
+        res.status(200).json({
+            success: true,
+            message: "Tickets retrieved successfully",
+            data: result.rows
+        });
+    } catch (error) {
+        console.error("Error retrieving tickets:", error.message);
+        res.status(500).json({
             success: false,
-            message: "Title is required"
+            message: "An error occurred while retrieving tickets"
         });
     }
-
-    // Validate priority
-    const allowedPriorities = ["low", "medium", "high"];
-    if (!allowedPriorities.includes(priority)) {
-        return res.status(400).json({
-            success: false,
-            message: "Priority must be low, medium, or high"
-        });
-    }
-
-    // Generate a new ticket ID
-    const newId = tickets.length > 0 ? Math.max(...tickets.map(t => t.id)) + 1 : 1;
-
-    // Create a new ticket object
-    const newTicket = {
-        id: newId,
-        title: title.trim(),
-        priority: priority,
-        status: "open"
-    };
-
-    // Add the new ticket to the tickets array
-    tickets.push(newTicket);
-
-    // Send a success response with the newly created ticket
-    res.status(201).json({
-        success: true,
-        message: "Ticket created successfully",
-        data: newTicket
-    });
 });
 
-router.put("/:id", (req, res) => {
-    // Find the ticket by ID
-    const ticketId = parseInt(req.params.id);
-    const index = tickets.findIndex(t => t.id === ticketId);
-    if (index === -1) {
-        return res.status(404).json({
-            success: false,
-            message: "Ticket not found"
-        });
-    }
-    
-    // Update the ticket's title and priority if provided
-    const { title, priority } = req.body;
-    if (title !== undefined) {
-        if (typeof title !== "string" || title.trim() === "") {
+router.get("/:id",  async (req, res) => {
+    try {
+        const ticketId = Number(req.params.id);
+        if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
             return res.status(400).json({
                 success: false,
-                message: "Title must be a non-empty string"
+                message: "Invalid ticket ID"
             });
         }
-        tickets[index].title = title.trim();
+        const result = await pool.query("SELECT * FROM tickets WHERE id = $1", [ticketId]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Ticket not found"
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: "Ticket retrieved successfully",
+            data: result.rows[0]
+        });
     }
-    if (priority) {
+    catch (error) {
+        console.error("Error retrieving ticket:", error.message);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while retrieving the ticket"
+        });
+    }
+});
+
+router.post("/", async (req, res) => {
+    try {
+        const { title, priority, user_id } = req.body;
+        // Validate title
+        if (!title || typeof title !== "string" || !title.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: "Title is required and must be a non-empty string"
+            });
+        }
+        // Validate priority
         const allowedPriorities = ["low", "medium", "high"];
-        if (!allowedPriorities.includes(priority)) {
+        if (!priority || !allowedPriorities.includes(priority)) {
             return res.status(400).json({
                 success: false,
-                message: "Priority must be low, medium, or high"
+                message: "Invalid priority. Allowed values are: low, medium, high"
             });
         }
-        tickets[index].priority = priority;
-    }
 
-    // Send a success response with the updated ticket
-    res.status(200).json({
-        success: true,
-        message: "Ticket updated successfully",
-        data: tickets[index]
-    });
-});
+        // Validate user_id
+        const userId = Number(user_id);
+        if (!Number.isSafeInteger(userId) || userId <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid user ID. It must be a positive integer"
+            });
+        }
 
-router.delete("/:id", (req, res) => {
-    // Find the ticket by ID
-    const ticketId = parseInt(req.params.id);
-    const index = tickets.findIndex(t => t.id === ticketId);
-    if (index === -1) {
-        return res.status(404).json({
+        // Save the ticket to the database
+        const result = await pool.query(
+            `INSERT INTO tickets (title, priority, user_id) VALUES ($1, $2, $3) RETURNING *`, [title.trim(), priority, userId]
+        );
+        res.status(201).json({
+            success: true,
+            message: "Ticket created successfully",
+            data: result.rows[0]
+        });
+    } catch (error) {
+        console.error("Error creating ticket:", error.message);
+
+        // Foreign key violation error handling
+        if (error.code === "23503") {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid user ID. The specified user does not exist"
+            });
+        }
+        
+        res.status(500).json({
             success: false,
-            message: "Ticket not found"
+            message: "Internal server error while creating the ticket"
         });
     }
+});
 
-    // Remove the ticket from the tickets array
-    const deletedTicket = tickets.splice(index, 1)[0];
+router.put("/:id", async (req, res) => {
+    try {
+        const ticketId = Number(req.params.id);
+        const { title, priority, status } = req.body;
 
-    // Send a success response with the deleted ticket
-    res.status(200).json({
-        success: true,
-        message: "Ticket deleted successfully",
-        data: deletedTicket
-    });
-})
+        // Validate ticket ID
+        if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid ticket ID. It must be a positive integer"
+            });
+        }
+
+        // Validate title
+        if (!title || typeof title !== "string" || !title.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: "Title is required and must be a non-empty string"
+            });
+        }
+
+        // Validate priority
+        const allowedPriorities = ["low", "medium", "high"];
+        if (!priority || !allowedPriorities.includes(priority)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid priority. Allowed values are: low, medium, high"
+            });
+        }
+
+        // Validate status
+        const allowedStatuses = ["open", "in_progress", "resolved"];
+        if (!status || !allowedStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status. Allowed values are: open, in_progress, resolved"
+            });
+        }
+
+        const result = await pool.query(
+            `UPDATE tickets SET title = $1,
+            priority = $2,
+            status = $3
+            WHERE id = $4 RETURNING *`, [title.trim(), priority, status, ticketId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Ticket not found"
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: "Ticket updated successfully",
+            data: result.rows[0]
+        });
+    } catch (error) {
+        console.error("Error updating ticket:", error.message);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while updating the ticket"
+        });
+    }
+});
+
+router.delete("/:id", async (req, res) => {
+    try {
+        const ticketId = Number(req.params.id);
+
+        // Validate ticket ID
+        if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid ticket ID. It must be a positive integer"
+            });
+        }
+        
+        const result = await pool.query(
+            `DELETE FROM tickets WHERE id = $1 RETURNING *`, [ticketId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Ticket not found"
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: "Ticket deleted successfully",
+            data: result.rows[0]
+        });
+    } catch (error) {
+        if (error.code === "23503") {
+            return res.status(409).json({
+                success: false,
+                message: "Cannot delete ticket. It is referenced by other records."
+            });
+        }
+
+        console.error("Error deleting ticket:", error.message);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while deleting the ticket"
+        });
+    }
+});
 
 export default router;
