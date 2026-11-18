@@ -20,10 +20,10 @@ router.get("/", async (req, res) => {
         }
 
         // Validate limit
-        if(!Number.isSafeInteger(limit) || limit <=0) {
+        if(!Number.isSafeInteger(limit) || limit <1 || limit > 100) {
             return res.status(400).json({
                 success: false,
-                message: "Invalid limit. It must be a positive integer"
+                message: "Invalid limit. It must be a positive integer between 1 and 100"
             });
         }
         // Calculate the offset for pagination
