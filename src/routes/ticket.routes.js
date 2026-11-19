@@ -36,11 +36,29 @@ router.get("/", async (req, res) => {
         }
 
         // Query the database for tickets with pagination
-        const result = await pool.query("SELECT * FROM tickets ORDER BY id ASC LIMIT $1 OFFSET $2", [limit, offset]);
+        
+        // const result = await pool.query("SELECT * FROM tickets ORDER BY id ASC LIMIT $1 OFFSET $2", [limit, offset]);
+        // const countResult = await pool.query("SELECT COUNT(*) FROM tickets");
+
+        // New Version: Use a single query to get both the tickets and the total count
+        const [result, countResult] = await Promise.all([
+            pool.query("SELECT * FROM tickets ORDER BY id ASC LIMIT $1 OFFSET $2", [limit, offset]),
+            pool.query("SELECT COUNT(*) FROM tickets")
+        ]);
+        const totalItems = Number(countResult.rows[0].count);;
+        const totalPages = Math.ceil(totalItems / limit);
+        
+        // Return the tickets along with pagination info
         res.status(200).json({
             success: true,
             message: "Tickets retrieved successfully",
-            data: result.rows
+            data: result.rows,
+            pagination: {
+                currentPage: page,
+                limit,
+                totalItems,
+                totalPages
+            }
         });
     } catch (error) {
         console.error("Error retrieving tickets:", error.message);
