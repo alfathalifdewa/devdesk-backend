@@ -35,16 +35,87 @@ router.get("/", async (req, res) => {
             });
         }
 
-        // Query the database for tickets with pagination
-        
-        // const result = await pool.query("SELECT * FROM tickets ORDER BY id ASC LIMIT $1 OFFSET $2", [limit, offset]);
-        // const countResult = await pool.query("SELECT COUNT(*) FROM tickets");
+        // Filtering parameters
+        const { priority, status } = req.query;
 
-        // New Version: Use a single query to get both the tickets and the total count
+        const allowedPriorities = ["low", "medium", "high"];
+        const allowedStatuses = ["open", "in_progress", "resolved"];
+
+        // Validate priority filter
+        if (priority !== undefined) {
+            if (typeof priority !== "string" || !allowedPriorities.includes(priority)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid priority filter. Allowed values are: low, medium, high"
+                });
+            }
+        }
+
+        // Validate status filter
+        if (status !== undefined) {
+            if (typeof status !== "string" || !allowedStatuses.includes(status)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid status filter. Allowed values are: open, in_progress, resolved"
+                });
+            }
+        }
+
+        // Build dynamic query based on filters
+        const conditions = [];
+        const values = [];
+
+        if (status !== undefined) {
+            values.push(status);
+            conditions.push(`status = $${values.length}`);
+        }
+
+        if (priority !== undefined) {
+            values.push(priority);
+            conditions.push(`priority = $${values.length}`);
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+        //============================= TESTING =============================
+
+        /* Query the database for tickets with pagination
+        
+        const result = await pool.query("SELECT * FROM tickets ORDER BY id ASC LIMIT $1 OFFSET $2", [limit, offset]);
+        const countResult = await pool.query("SELECT COUNT(*) FROM tickets");
+
+        */
+
+        /* Single query to get both the tickets and the total count 
         const [result, countResult] = await Promise.all([
             pool.query("SELECT * FROM tickets ORDER BY id ASC LIMIT $1 OFFSET $2", [limit, offset]),
             pool.query("SELECT COUNT(*) FROM tickets")
         ]);
+
+        // ============================= END OF TESTING =============================
+
+        */
+
+        // Build the final query with pagination and filtering
+        const dataValues = [...values, limit, offset];
+        const dataQuery = `
+            SELECT * FROM tickets
+            ${whereClause}
+            ORDER BY id ASC
+            LIMIT $${values.length + 1}
+            OFFSET $${values.length + 2}
+        `;
+
+        const countQuery = `
+            SELECT COUNT(*) FROM tickets
+            ${whereClause}
+        `;
+
+        const [result, countResult] = await Promise.all([
+            pool.query(dataQuery, dataValues),
+            pool.query(countQuery, values)
+        ]);
+
         const totalItems = Number(countResult.rows[0].count);;
         const totalPages = Math.ceil(totalItems / limit);
         
